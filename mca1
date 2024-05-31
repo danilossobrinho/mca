@@ -1,0 +1,90 @@
+# -*- coding: utf-8 -*-
+"""
+Created on Thu May 30 17:13:52 2024
+
+@author: Danil
+"""
+
+# Import de biblioteccas
+import pandas as pd
+import matplotlib.pyplot as plt
+import numpy as np
+import prince
+
+# CArregando o database
+data = pd.read_excel('C:/Users/Danil/OneDrive/Documentos/Python Scripts/Python Scripts/dados_cor_acm.xlsx')
+
+# Transformando as variáveis métricas em categóricas
+def categorizar_variavel(coluna, nome_categoria):
+    coluna_sem_nan = coluna.dropna()  # Remover valores ausentes
+    quartil_25 = coluna_sem_nan.quantile(0.25)
+    quartil_75 = coluna_sem_nan.quantile(0.75)
+    
+    return pd.cut(coluna,
+                  bins=[float('-inf'), quartil_25, quartil_75, float('inf')],
+                  labels=[f'{nome_categoria}_baixo', f'{nome_categoria}_médio', f'{nome_categoria}_alto'])
+
+data['Categ_Idade'] = categorizar_variavel(data['Idade'], 'idade')
+data['Categ_PS_Desc'] = categorizar_variavel(data['PS_Descanso'], 'PS_descanso')
+data['Categ_Colest'] = categorizar_variavel(data['Colesterol'], 'colesterol')
+data['Categ_BC_Max'] = categorizar_variavel(data['BC_Max'], 'BC_Max')
+
+remove_var = data.drop(columns=['Idade', 'PS_Descanso', 'Colesterol', 'BC_Max'])
+
+# A função para a criação da ACM pede que sejam utilizados "fatores"
+remove_var = remove_var.apply(lambda x: x.astype('category'))
+remove_var.info()
+
+#Fazendo a MCCA de fatao dentro do ambiente python
+mca = prince.MCA(n_components=2, n_iter=10, copy=True, check_input=True, engine='sklearn', random_state=42)
+ACM = mca.fit(remove_var)
+print('Eigenvalues:', ACM.eigenvalues_)
+print('Explained inertia:', ACM.explained_inertia_)
+print('Row coordinates:', ACM.row_coordinates(remove_var))
+print('Column coordinates:', ACM.column_coordinates(remove_var))
+
+
+
+
+# Extraímos as coordenadas das linhas e colunas do resultado da MCA
+row_coords = ACM.fs_r()
+col_coords = ACM.fs_c()
+
+# Convertendo as coordenadas em DataFrames
+row_coords_df = pd.DataFrame(row_coords, columns=['Dim1', 'Dim2'])
+col_coords_df = pd.DataFrame(col_coords, columns=['Dim1', 'Dim2'])
+
+# Adiciona um identificador para as categorias
+row_coords_df['Categoria'] = remove_var.index
+col_coords_df['Categoria'] = remove_var.columns
+
+# Adiciona um identificador para as variáveis (distinguindo linhas de colunas)
+row_coords_df['Variável'] = 'Linha'
+col_coords_df['Variável'] = 'Coluna'
+
+# Combina as coordenadas das linhas e colunas em um único DataFrame
+plot_df = pd.concat([row_coords_df, col_coords_df], ignore_index=True)
+
+# Cria o gráfico
+plt.figure(figsize=(10, 8))
+sns.scatterplot(data=plot_df, x='Dim1', y='Dim2', hue='Variável', style='Variável', s=100)
+
+# Adiciona labels aos pontos
+texts = [plt.text(plot_df.loc[i, 'Dim1'], plot_df.loc[i, 'Dim2'], plot_df.loc[i, 'Categoria'], fontsize=9)
+         for i in range(plot_df.shape[0])]
+
+# Ajusta os labels para não se sobreporem
+adjust_text(texts)
+
+# Adiciona linhas de referência no centro do gráfico
+plt.axvline(0, color='grey', linestyle='--')
+plt.axhline(0, color='grey', linestyle='--')
+
+# Adiciona títulos e labels aos eixos
+explained_inertia = ACM.inertia * 100  # Convertendo para porcentagem
+plt.xlabel(f"Dimensão 1: {explained_inertia[0]:.2f}%")
+plt.ylabel(f"Dimensão 2: {explained_inertia[1]:.2f}%")
+
+# Mostra o gráfico
+plt.title('Mapa Perceptual')
+plt.show()
